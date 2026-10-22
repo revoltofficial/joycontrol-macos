@@ -20,7 +20,7 @@ jobs:
       - name: Verify app architecture and signature
         run: |
           file build/Joycontrol.app/Contents/MacOS/joycontrol-macos
-          lipo -verify_arch arm64 build/Joycontrol.app/Contents/MacOS/joycontrol-macos
+          lipo build/Joycontrol.app/Contents/MacOS/joycontrol-macos -verify_arch arm64
           codesign --verify --strict --verbose=2 build/Joycontrol.app
       - name: Package app
         run: ditto -c -k --sequesterRsrc --keepParent build/Joycontrol.app build/Joycontrol-arm64.zip
