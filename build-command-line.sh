@@ -24,11 +24,10 @@ s = p.read_text()
 old = '.package(\n            url: "https://github.com/PureSwift/Bluetooth.git",\n            .branch("master")\n        )'
 assert old in s, "Unexpected upstream BluetoothDarwin manifest"
 p.write_text(s.replace(old, '.package(path: "../Bluetooth")'))
-p = Path("Vendor/Bluetooth/Sources/Bluetooth/Extensions/DataConvertible.swift")
-s = p.read_text()
-old = "    subscript(range: Range<Int>) -> Slice<Self> { get }"
-assert old in s, "Unexpected upstream DataContainer declaration"
-p.write_text(s.replace(old, "    // Range slicing is inherited from Collection; Data.SubSequence is Data."))
+for p in Path("Vendor/Bluetooth/Sources").rglob("DataConvertible.swift"):
+    s = p.read_text()
+    old = "    subscript(range: Range<Int>) -> Slice<Self> { get }"
+    p.write_text(s.replace(old, "    // Range slicing is inherited from Collection; Data.SubSequence is Data."))
 PY
 # Only build and package. Never launch or change Bluetooth settings here.
 swift build -c release --arch arm64
