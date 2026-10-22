@@ -8,6 +8,7 @@ import BluetoothDarwin
 import BluetoothHCI
 import CBluetoothDarwin
 import Foundation
+import Darwin
 import IOBluetooth
 import os.log
 import SwiftUI
@@ -41,12 +42,32 @@ class NintendoSwitchBluetoothManager: NSObject, IOBluetoothL2CAPChannelDelegate,
         Self.hostController.delegate = self
     }
 
-    func setScanEnabled(enabled: Bool) {
+    func setScanEnabled(enabled: Bool) throws {
         logger.debug(#function)
-        try! Self.hostControllerDefault.writeScanEnable(
-            scanEnable: enabled ? .inquiryAndPageScan
-                : .noScans
-        )
+        do {
+            try Self.hostControllerDefault.writeScanEnable(
+                scanEnable: enabled ? .inquiryAndPageScan : .noScans
+            )
+        } catch {
+            // Modern macOS can reject raw HCI commands. Use the OS preference API,
+            // also used by blueutil, without force-unwrapping an error.
+            guard let framework = dlopen("/System/Library/Frameworks/IOBluetooth.framework/IOBluetooth", RTLD_LAZY),
+                  let setSymbol = dlsym(framework, "IOBluetoothPreferenceSetDiscoverableState"),
+                  let getSymbol = dlsym(framework, "IOBluetoothPreferenceGetDiscoverableState") else {
+                throw error
+            }
+            defer { dlclose(framework) }
+            typealias Setter = @convention(c) (Int32) -> Void
+            typealias Getter = @convention(c) () -> Int32
+            let setDiscoverable = unsafeBitCast(setSymbol, to: Setter.self)
+            let getDiscoverable = unsafeBitCast(getSymbol, to: Getter.self)
+            setDiscoverable(enabled ? 1 : 0)
+            guard (getDiscoverable() != 0) == enabled else {
+                throw NSError(domain: "Joycontrol.Pairing", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey:
+                        "macOS rejected the Bluetooth scan command and did not change discoverability. Original error: \(error)"])
+            }
+        }
     }
 
     func controllerProtocolConnectionLost() {
