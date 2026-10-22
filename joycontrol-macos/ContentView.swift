@@ -45,6 +45,8 @@ private let kControllerButtonToText: [ControllerButton: String] = [
 struct ContentView: View {
     let logger = Logger()
     @State var toggleAllowPairing: Bool
+    @State private var pairingError = ""
+    @State private var showPairingError = false
     var quickActions: [ControllerQuickActionTopLevel]
     @AppStorage("deviceAddress") private var deviceAddress: String = ""
     @ObservedObject var bluetoothManager = NintendoSwitchBluetoothManager.shared
@@ -134,6 +136,11 @@ struct ContentView: View {
             }.disabled(!bluetoothManager.readyForInput)
         }
         .toggleStyle(SwitchToggleStyle())
+        .alert(isPresented: $showPairingError) {
+            Alert(title: Text("Could not enable pairing"),
+                  message: Text(pairingError),
+                  dismissButton: .default(Text("OK")))
+        }
         .onReceive(Just(bluetoothManager), perform: { output in
             if deviceAddress.isEmpty {
                 deviceAddress = output.deviceAddress
@@ -200,7 +207,12 @@ struct ContentView: View {
     }
 
     private func setAllowPairing(_ allowPairing: Bool) {
-        bluetoothManager.setScanEnabled(enabled: allowPairing)
+        do {
+            try bluetoothManager.setScanEnabled(enabled: allowPairing)
+        } catch {
+            pairingError = String(describing: error)
+            showPairingError = true
+        }
     }
 }
 
