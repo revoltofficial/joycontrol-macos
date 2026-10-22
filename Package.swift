@@ -1,4 +1,4 @@
-// swift-tools-version:5.3
+// swift-tools-version:5.5
 import PackageDescription
 
 let package = Package(
@@ -6,11 +6,11 @@ let package = Package(
     platforms: [.macOS(.v11)],
     products: [.executable(name: "joycontrol-macos", targets: ["JoycontrolMacos"])],
     dependencies: [
-        .package(url: "https://github.com/PureSwift/Bluetooth.git", .revision("308277c808ced9ab169f52cb911b593c96b6fd27")),
-        .package(url: "https://github.com/PureSwift/BluetoothDarwin.git", .revision("375e2db4d6bcc62b064866989df8c5b300ee9037"))
+        .package(path: "Vendor/Bluetooth"),
+        .package(path: "Vendor/BluetoothDarwin")
     ],
     targets: [
-        .target(
+        .executableTarget(
             name: "JoycontrolMacos",
             dependencies: [
                 .product(name: "Bluetooth", package: "Bluetooth"),
