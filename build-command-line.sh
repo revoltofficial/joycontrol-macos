@@ -6,6 +6,25 @@ if ! xcrun --find swift >/dev/null 2>&1; then
     echo 'Install the Command Line Tools package from developer.apple.com/download/all/.' >&2
     exit 1
 fi
+mkdir -p Vendor
+for dep in Bluetooth BluetoothDarwin; do
+    if [ ! -d "Vendor/$dep/.git" ]; then
+        git init "Vendor/$dep"
+        git -C "Vendor/$dep" remote add origin "https://github.com/PureSwift/$dep.git"
+    fi
+done
+git -C Vendor/Bluetooth fetch --depth 1 origin 308277c808ced9ab169f52cb911b593c96b6fd27
+git -C Vendor/Bluetooth checkout --detach FETCH_HEAD
+git -C Vendor/BluetoothDarwin fetch --depth 1 origin 375e2db4d6bcc62b064866989df8c5b300ee9037
+git -C Vendor/BluetoothDarwin checkout --detach FETCH_HEAD
+python3 - <<'PY'
+from pathlib import Path
+p = Path("Vendor/BluetoothDarwin/Package.swift")
+s = p.read_text()
+old = '.package(\n            url: "https://github.com/PureSwift/Bluetooth.git",\n            .branch("master")\n        )'
+assert old in s, "Unexpected upstream BluetoothDarwin manifest"
+p.write_text(s.replace(old, '.package(path: "../Bluetooth")'))
+PY
 # Only build and package. Never launch or change Bluetooth settings here.
 swift build -c release --arch arm64
 bin_dir="$(swift build -c release --arch arm64 --show-bin-path)"
