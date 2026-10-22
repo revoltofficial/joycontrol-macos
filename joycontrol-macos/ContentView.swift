@@ -81,6 +81,18 @@ struct ContentView: View {
                         .onChange(of: toggleAllowPairing) { value in
                             setAllowPairing(value)
                         }
+                    Button("Pair using macOS…") {
+                        do {
+                            try bluetoothManager.pairUsingMacOS()
+                        } catch {
+                            pairingError = String(describing: error)
+                            showPairingError = true
+                        }
+                    }
+                    Text(bluetoothManager.pairingStatus)
+                        .font(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 270)
                     Text("Nintendo Switch Device Address:")
                     TextField("Nintendo Switch Device Address", text: $deviceAddress)
                         .disabled(bluetoothManager.readyForInput)
@@ -142,7 +154,7 @@ struct ContentView: View {
                   dismissButton: .default(Text("OK")))
         }
         .onReceive(Just(bluetoothManager), perform: { output in
-            if deviceAddress.isEmpty {
+            if !output.deviceAddress.isEmpty {
                 deviceAddress = output.deviceAddress
             }
         })
