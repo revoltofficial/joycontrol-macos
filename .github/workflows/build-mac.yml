@@ -1,0 +1,31 @@
+name: Build Mac controller app
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-mac.yml'
+      - 'Package.swift'
+      - 'build-command-line.sh'
+      - 'joycontrol-macos/**'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Apple Silicon app
+        run: bash build-command-line.sh
+      - name: Verify app architecture and signature
+        run: |
+          file build/Joycontrol.app/Contents/MacOS/joycontrol-macos
+          lipo -verify_arch arm64 build/Joycontrol.app/Contents/MacOS/joycontrol-macos
+          codesign --verify --strict --verbose=2 build/Joycontrol.app
+      - name: Package app
+        run: ditto -c -k --sequesterRsrc --keepParent build/Joycontrol.app build/Joycontrol-arm64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Joycontrol-Apple-Silicon
+          path: build/Joycontrol-arm64.zip
+          retention-days: 7
