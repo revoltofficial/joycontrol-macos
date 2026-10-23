@@ -19,6 +19,7 @@ let package = Package(
             path: "joycontrol-macos",
             exclude: ["Info.plist", "joycontrol_macos.entitlements", "NintendoSwitchControllerSDP.plist", "Assets.xcassets", "Preview Content"],
             linkerSettings: [.linkedFramework("IOBluetooth")]
-        )
+        ),
+        .testTarget(name: "PairingReadinessTests", dependencies: ["JoycontrolMacos"], path: "Tests/PairingReadinessTests")
     ]
 )

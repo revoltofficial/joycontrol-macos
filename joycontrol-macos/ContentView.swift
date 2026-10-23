@@ -5,6 +5,7 @@
 //  Created by Joey Jacobs on 1/24/21.
 //
 
+import AppKit
 import Combine
 import os.log
 import SwiftUI
@@ -81,7 +82,10 @@ struct ContentView: View {
                         .onChange(of: toggleAllowPairing) { value in
                             setAllowPairing(value)
                         }
-                    Button("Pair using macOS…") {
+                    Button("Refresh controller advertising") {
+                        setAllowPairing(true)
+                    }
+                    Button("Find nearby devices (optional)") {
                         do {
                             try bluetoothManager.pairUsingMacOS()
                         } catch {
@@ -93,6 +97,10 @@ struct ContentView: View {
                         .font(.caption)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: 270)
+                    Button("Copy Bluetooth diagnostics") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(bluetoothManager.pairingStatus + "\n" + bluetoothManager.pairingDiagnostics, forType: .string)
+                    }
                     Text("Nintendo Switch Device Address:")
                     TextField("Nintendo Switch Device Address", text: $deviceAddress)
                         .disabled(bluetoothManager.readyForInput)
@@ -158,7 +166,7 @@ struct ContentView: View {
                 deviceAddress = output.deviceAddress
             }
         })
-        .frame(width: 700, height: 460)
+        .frame(width: 760, height: 580)
     }
 
     @ViewBuilder

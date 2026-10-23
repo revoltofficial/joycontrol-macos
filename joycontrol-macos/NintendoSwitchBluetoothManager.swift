@@ -19,7 +19,7 @@ class NintendoSwitchBluetoothManager: NSObject, IOBluetoothL2CAPChannelDelegate,
     private static let controlPsm = BluetoothL2CAPPSM(kBluetoothL2CAPPSMHIDControl)
     private static let interruptPsm = BluetoothL2CAPPSM(kBluetoothL2CAPPSMHIDInterrupt)
     static let shared = NintendoSwitchBluetoothManager()
-    private static let hostController = IOBluetoothHostController()
+    private static let hostController = IOBluetoothHostController.default() ?? IOBluetoothHostController()
     private var controlChannel: IOBluetoothL2CAPChannel?
     private var interruptChannel: IOBluetoothL2CAPChannel?
     private var controlChannelOutgoing: IOBluetoothL2CAPChannel?
@@ -29,7 +29,13 @@ class NintendoSwitchBluetoothManager: NSObject, IOBluetoothL2CAPChannelDelegate,
     private let logger = Logger()
     private var controllerProtocol: ControllerProtocol?
     private var nintendoSwitch: IOBluetoothDevice?
-    @Published var pairingStatus = "Ready to prepare controller."
+    @Published var pairingStatus = "Not advertising as a controller."
+    @Published var pairingDiagnostics = ""
+    private var originalName: String?
+    private var originalScan: Int8?
+    private var changedName = false
+    private var changedScan = false
+    private var terminationObserver: NSObjectProtocol?
     private var channelNotifications: [IOBluetoothUserNotification] = []
     @objc @Published var deviceAddress: String = ""
     private var connected: Bool = false
@@ -42,21 +48,81 @@ class NintendoSwitchBluetoothManager: NSObject, IOBluetoothL2CAPChannelDelegate,
     override private init() {
         super.init()
         Self.hostController.delegate = self
+        terminationObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.restoreControllerRadio()
+        }
     }
 
     func setScanEnabled(enabled: Bool) throws {
         if enabled {
             try configureHostControllerForNintendoSwitch()
-            pairingStatus = "Controller service ready. Open Change Grip/Order on Switch; if it stays empty, use Pair using macOS."
-            // The system picker handles discoverability. Raw scan HCI commands
-            // are unsupported on current macOS and are no longer sent.
+            configureControllerRadio()
         } else {
+            restoreControllerRadio()
             channelNotifications.forEach { $0.unregister() }
             channelNotifications.removeAll()
             serviceRecord?.remove()
             serviceRecord = nil
             pairingStatus = "Controller service stopped."
         }
+    }
+
+    private func writeRadioName(_ name: String) -> Int32 {
+        var bytes = [UInt8](name.utf8.prefix(247))
+        bytes += [UInt8](repeating: 0, count: 256 - bytes.count)
+        return bytes.withUnsafeMutableBufferPointer {
+            Self.hostController.bluetoothHCIWriteLocalName($0.baseAddress)
+        }
+    }
+
+    private func configureControllerRadio() {
+        let host = Self.hostController
+        if originalName == nil { originalName = host.nameAsString() }
+        if originalScan == nil {
+            var mode: Int8 = 0
+            if host.bluetoothHCIReadScanEnable(&mode) == kIOReturnSuccess { originalScan = mode }
+        }
+        // These native selectors take a different path from BluetoothHCISendRawCommand,
+        // which returned kIOReturnUnsupported on the user's Mac.
+        let nameResult = writeRadioName(Self.deviceName)
+        changedName = changedName || nameResult == kIOReturnSuccess
+        let classResult = host.setClassOfDevice(0x000508, forTimeInterval: 120.0)
+        let inquiry = HCIWriteExtendedInquiryResponseData(deviceName: Self.deviceName, modelId: "", fecRequired: false)!
+        var response = BluetoothHCIExtendedInquiryResponse(data: inquiry.getTuple())
+        let inquiryResult = host.bluetoothHCIWriteExtendedInquiryResponse(Byte(kBluetoothHCIFECNotRequired.rawValue), in: &response)
+        let scanResult = host.bluetoothHCIWriteScanEnable(3)
+        changedScan = changedScan || scanResult == kIOReturnSuccess
+        var mode: Int8 = 0
+        let readResult = host.bluetoothHCIReadScanEnable(&mode)
+        let actualName = host.nameAsString() ?? "(unavailable)"
+        let actualClass = host.classOfDevice()
+        let check = PairingReadiness(name: actualName, deviceClass: actualClass,
+            scanReadStatus: readResult, scanMode: UInt8(bitPattern: mode))
+        func code(_ result: Int32) -> String { String(format: "0x%08X", UInt32(bitPattern: result)) }
+        pairingDiagnostics = [
+            "Name write: " + code(nameResult),
+            "Class write: " + code(classResult),
+            "Inquiry response write: " + code(inquiryResult),
+            "Scan write: " + code(scanResult),
+            "Scan read: " + code(readResult),
+            "Observed name: " + actualName,
+            String(format: "Observed class: 0x%06X", actualClass),
+            "Observed scan: " + String(UInt8(bitPattern: mode))
+        ].joined(separator: "\n")
+        if check.blockers.isEmpty {
+            pairingStatus = "Mac radio checks passed. Keep Switch on Change Grip/Order. Connection is not verified. Retry within two minutes."
+        } else {
+            pairingStatus = "Controller advertising is not verified: " + check.blockers.joined(separator: "; ") + "."
+        }
+    }
+
+    private func restoreControllerRadio() {
+        if changedName, let name = originalName { _ = writeRadioName(name) }
+        if changedScan, let mode = originalScan {
+            _ = Self.hostController.bluetoothHCIWriteScanEnable(UInt8(bitPattern: mode))
+        }
+        changedName = false
+        changedScan = false
     }
 
     func pairUsingMacOS() throws {
@@ -121,10 +187,7 @@ class NintendoSwitchBluetoothManager: NSObject, IOBluetoothL2CAPChannelDelegate,
             }
             channelNotifications.append(notification)
         }
-        let result = Self.hostController.setClassOfDevice(0x000508, forTimeInterval: 120.0)
-        pairingStatus = result == kIOReturnSuccess
-            ? "Controller service published and gamepad device class enabled."
-            : "Controller service published; macOS rejected the gamepad device class (\(result))."
+        pairingStatus = "Controller service published. Radio advertising has not been checked."
     }
 
     private func onBluetoothPoweredOn() {
@@ -207,6 +270,7 @@ class NintendoSwitchBluetoothManager: NSObject, IOBluetoothL2CAPChannelDelegate,
             controlChannel = l2capChannel
 
         case NintendoSwitchBluetoothManager.interruptPsm:
+            if interruptChannel === l2capChannel && controllerProtocol != nil { return }
             logger.info("Interrupt PSM Channel Connected")
             interruptChannel = l2capChannel
             guard let hostAddress = hostAddress else {
@@ -293,6 +357,8 @@ class NintendoSwitchBluetoothManager: NSObject, IOBluetoothL2CAPChannelDelegate,
     }
 
     deinit {
+        restoreControllerRadio()
+        if let observer = terminationObserver { NotificationCenter.default.removeObserver(observer) }
         logger.debug("Removing service record")
         serviceRecord?.remove()
     }
